@@ -650,7 +650,7 @@ int main()
         << "Guiller, Gerylyn\n\n\n";
 
     std::cout
-        << "Version Date: September 26, 2026\n\n";
+        << "Version Date: September 28, 2026\n\n";
 
     std::cout
         << "Type 'help' to see available commands.\n\n";
