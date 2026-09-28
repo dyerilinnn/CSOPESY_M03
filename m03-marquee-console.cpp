@@ -14,7 +14,9 @@
 #include <fstream>    // For file input/output, For std::ifstream, std::ofstream
 #include <sstream>    // For string stream operations, For std::stringstream
 
+#ifndef NOMINMAX
 #define NOMINMAX      // Stops windows.h from defining min/max macros (breaks std::min)
+#endif
 #include <windows.h>  // For enabling ANSI escape codes in the console
 #include <conio.h>    // For _getch() to read keyboard input without waiting for Enter key
 
