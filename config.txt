@@ -1,0 +1,24 @@
+# ==============================================================================
+# CSOPESY CONSOLE CONFIGURATION (config.txt)
+# ==============================================================================
+# Instructions: Modify parameter values only. Do NOT rename configuration keys.
+# Recompilation is NOT required; changes take effect upon executable launch.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. CONSOLE UI # ------------------------------------------------------------------------------
+
+# Default Marquee Settings
+default_marquee_speed_ms=100
+
+
+# ------------------------------------------------------------------------------
+# 2. COMMAND RECOGNITION & INTERPRETER POLLING
+# ------------------------------------------------------------------------------
+# Keyboard Polling Interval (in milliseconds)
+# Frequency at which the background input thread checks for keypresses (_kbhit).
+keyboard_polling_ms=10
+
+# Command Queue / Interpreter Polling Interval (in milliseconds)
+# Delay between checks by the command execution thread for pending user commands.
+interpreter_polling_ms=10
