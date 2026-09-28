@@ -1,7 +1,6 @@
 // CSOPESY - S05 - GROUP 8
 // M03 - MARQUEE CONSOLE
 
-
 #include <algorithm>  // Provides functions like std::min()
 #include <atomic>     // For atomic operations, For std::atomic
 #include <cctype>     // Character type functions, For std::isprint
