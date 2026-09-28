@@ -2,10 +2,10 @@
 ## S05 - GROUP 8
 
 # Submitted by:
-Abenojar, Fredrikzen
-Caya, Mary Faye
-Diamante, Deo Zamir
-Guiller, Gerylyn
+- Abenojar, Fredrikzen
+- Caya, Mary Faye
+- Diamante, Deo Zamir
+- Guiller, Gerylyn
 
 # Project:
 M03 - Marquee Console
