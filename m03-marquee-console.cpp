@@ -53,158 +53,401 @@
 #include <thread> // Manage threads, For std::thread
 #include <chrono> // C++'s time library, For std::chrono::milliseconds, std::this_thread::sleep_for
 #include <cctype> // Character type functions, For std::isprint
+#include <algorithm> // Provides functions like std::min()
 
-// ============================================================
-//                         SHARED STATE
-// ============================================================
-
-// boolean variable to control the running state of the program
+// Shared program status
 std::atomic<bool> is_running{true};
 std::atomic<bool> marquee_running{false};
 
-// Shared state variables for marquee text and speed, protected by mutexes
+// Marquee text
 std::string marquee_text;
 std::mutex marquee_text_mutex;
+
+// Marquee speed in milliseconds
 int marquee_speed = 100;
 std::mutex marquee_speed_mutex;
 
-// Command queue and mutex for thread-safe access
+// Marquee animation thread
+std::thread marquee_thread;
+
+// Commands waiting to be processed
 std::queue<std::string> command_queue;
 std::mutex command_queue_mutex;
 
-// User input and console prompt buffers, protected by mutexes
+// Stores what the user is currently typing
 std::string current_input_buffer;
 std::mutex input_buffer_mutex;
-std::string prompt_display_buffer;
-std::mutex prompt_mutex;
 
-// ============================================================
-//                  KEYBOARD / INPUT SYSTEM
-// ============================================================
+// Prevents multiple threads from writing to the console at once
+std::mutex console_mutex;
 
-// Function to handle keyboard input in a separate thread
-void keyboard_handler_thread_func() {
-    while (is_running) {
-        char ch = std::cin.get(); // Get a single character from standard input
 
-        // Handle Enter key (newline)
-        if (ch == '\n') {
-            std::string command;
-            // Lock the input buffer mutex to safely access the current input buffer
+// Returns the current input typed by the user
+std::string get_current_input()
+{
+    std::lock_guard<std::mutex> lock(
+        input_buffer_mutex);
+
+    return current_input_buffer;
+}
+
+
+// Redraws the Command> prompt with the current input
+void draw_command_prompt()
+{
+    std::string input;
+
+    {
+        std::lock_guard<std::mutex> lock(
+            input_buffer_mutex);
+
+        input = current_input_buffer;
+    }
+
+    std::lock_guard<std::mutex> lock(
+        console_mutex);
+
+    // Clear the current line and redraw the prompt
+    std::cout
+        << "\033[2K\r"
+        << "Command> "
+        << input;
+
+    std::cout.flush();
+}
+
+
+// Sleep for the given time while still checking if
+// the marquee has been stopped.
+bool interruptible_sleep(int milliseconds)
+{
+    int elapsed = 0;
+
+    while (elapsed < milliseconds)
+    {
+        if (!is_running || !marquee_running)
+        {
+            return false;
+        }
+
+        int wait_time =
+            std::min(10, milliseconds - elapsed);
+
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(wait_time));
+
+        elapsed += wait_time;
+    }
+
+    return true;
+}
+
+
+// Prints one frame of the marquee and then waits
+// based on the current speed.
+bool display_marquee_line(
+    const std::string& text)
+{
+    if (!is_running || !marquee_running)
+    {
+        return false;
+    }
+
+    std::string input;
+
+    {
+        std::lock_guard<std::mutex> lock(
+            input_buffer_mutex);
+
+        input = current_input_buffer;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(
+            console_mutex);
+
+        // Clear the current prompt before printing the frame
+        std::cout
+            << "\033[2K\r";
+
+        // Print the current marquee text
+        std::cout
+            << text
+            << '\n';
+
+        // Keep the command prompt below the marquee
+        std::cout
+            << "Command> "
+            << input;
+
+        std::cout.flush();
+    }
+
+    int speed;
+
+    {
+        std::lock_guard<std::mutex> lock(
+            marquee_speed_mutex);
+
+        speed = marquee_speed;
+    }
+
+    return interruptible_sleep(speed);
+}
+
+
+// Handles the marquee grow and delete animation
+void marquee_animation()
+{
+    while (is_running && marquee_running)
+    {
+        std::string text;
+
+        {
+            std::lock_guard<std::mutex> lock(
+                marquee_text_mutex);
+
+            text = marquee_text;
+        }
+
+        // Wait if there is no text to display
+        if (text.empty())
+        {
+            if (!interruptible_sleep(10))
             {
-                std::lock_guard<std::mutex> input_lock(input_buffer_mutex);
-                // Move the current input buffer to the command variable and clear it for new input
-                command = current_input_buffer;
-                current_input_buffer.clear();
+                return;
             }
-            // If the command is not empty, push it to the command queue
-            if (!command.empty()) {
-                std::lock_guard<std::mutex> queue_lock(command_queue_mutex);
-                command_queue.push(command);
+
+            continue;
+        }
+
+        // Show the text one character at a time
+        for (size_t i = 1;
+             i <= text.length();
+             i++)
+        {
+            if (!is_running || !marquee_running)
+            {
+                return;
+            }
+
+            std::string display =
+                text.substr(0, i);
+
+            if (!display_marquee_line(display))
+            {
+                return;
             }
         }
-        // Handle Backspace key (ASCII 8 or 127)
-        else if (ch == '\b' || ch == 127) {
-            // Lock the input buffer mutex to safely modify the current input buffer
-            std::lock_guard<std::mutex> input_lock(input_buffer_mutex);
-            // Remove the last character from the current input buffer if it's not empty
-            if (!current_input_buffer.empty()) {
-                current_input_buffer.pop_back();
+
+        // Remove one character at a time
+        for (int i =
+                 static_cast<int>(
+                     text.length()) - 1;
+             i >= 1;
+             i--)
+        {
+            if (!is_running || !marquee_running)
+            {
+                return;
+            }
+
+            std::string display =
+                text.substr(0, i);
+
+            if (!display_marquee_line(display))
+            {
+                return;
             }
         }
-        // Handle printable characters
-        else if (std::isprint(static_cast<unsigned char>(ch))) {
-            std::lock_guard<std::mutex> input_lock(input_buffer_mutex);
-            current_input_buffer += ch; // Append the character to the current input buffer
+
+        // Short pause before starting the animation again
+        int speed;
+
+        {
+            std::lock_guard<std::mutex> lock(
+                marquee_speed_mutex);
+
+            speed = marquee_speed;
+        }
+
+        if (!interruptible_sleep(speed))
+        {
+            return;
         }
     }
 }
 
-// ============================================================
-//                     COMMAND HANDLER
-// ============================================================
 
-// Function to handle commands from the command queue
-void command_handler(const std::string &command_line) { // parameter: pointer to the command line string
+// Reads keyboard input and stores it in the input buffer
+void keyboard_handler_thread_func()
+{
+    while (is_running)
+    {
+        char ch = std::cin.get();
+
+        // Submit the command when Enter is pressed
+        if (ch == '\n')
+        {
+            std::string command;
+
+            {
+                std::lock_guard<std::mutex> lock(
+                    input_buffer_mutex);
+
+                command =
+                    current_input_buffer;
+
+                current_input_buffer.clear();
+            }
+
+            if (!command.empty())
+            {
+                std::lock_guard<std::mutex> lock(
+                    command_queue_mutex);
+
+                command_queue.push(command);
+            }
+
+            // The command handler will redraw the prompt
+            continue;
+        }
+
+        // Remove the last character when Backspace is pressed
+        else if (ch == '\b' || ch == 127)
+        {
+            {
+                std::lock_guard<std::mutex> lock(
+                    input_buffer_mutex);
+
+                if (!current_input_buffer.empty())
+                {
+                    current_input_buffer.pop_back();
+                }
+            }
+
+            draw_command_prompt();
+        }
+
+        // Add printable characters to the input buffer
+        else if (
+            std::isprint(
+                static_cast<unsigned char>(ch)))
+        {
+            {
+                std::lock_guard<std::mutex> lock(
+                    input_buffer_mutex);
+
+                current_input_buffer += ch;
+            }
+
+            draw_command_prompt();
+        }
+    }
+}
+
+
+// Processes commands entered by the user
+void command_handler(
+    const std::string& command_line)
+{
     std::string output;
 
-    // ========================================================
-    // HELP
-    // ========================================================
-
-    if (command_line == "help") {
+    // Display available commands
+    if (command_line == "help")
+    {
         output =
             "\nAvailable commands:\n"
             " help           - Show commands\n"
             " start_marquee  - Start marquee animation\n"
             " stop_marquee   - Stop marquee animation\n"
             " set_text       - Set new text\n"
-            " set_speed      - Set new speed in milliseconds\n"
+            " set_speed      - Set marquee speed in milliseconds\n"
             " exit           - Terminate the console\n\n";
     }
 
-    // ========================================================
-    // START MARQUEE - UPDATE THIS
-    // ========================================================
-
-    else if (command_line == "start_marquee") {
+    // Start the marquee animation
+    else if (command_line == "start_marquee")
+    {
         bool has_text;
 
         {
             std::lock_guard<std::mutex> lock(
                 marquee_text_mutex);
 
-            has_text = !marquee_text.empty();
+            has_text =
+                !marquee_text.empty();
         }
 
-        if (!has_text) {
+        if (!has_text)
+        {
             output =
-                "The text field is empty. Please use 'set_text' first.\n";
-        } else {
+                "The text field is empty. "
+                "Please use 'set_text' first.\n";
+        }
+        else if (marquee_running)
+        {
             output =
-                "Marquee is ready.\n"
-                "Stored text: [" + marquee_text + "]\n";
+                "Marquee is already running.\n";
+        }
+        else
+        {
+            marquee_running = true;
+
+            marquee_thread =
+                std::thread(
+                    marquee_animation);
+
+            output = "";
         }
     }
 
-    // ========================================================
-    // STOP MARQUEE - UPDATE THIS
-    // ========================================================
-
-    else if (command_line == "stop_marquee") {
-        if (marquee_running) {
+    // Stop the marquee animation
+    else if (command_line == "stop_marquee")
+    {
+        if (marquee_running)
+        {
             marquee_running = false;
 
+            if (marquee_thread.joinable())
+            {
+                marquee_thread.join();
+            }
+
             output =
-                "Marquee has stopped.\n";
-        } else {
+                "\nMarquee has stopped.\n";
+        }
+        else
+        {
             output =
                 "Marquee isn't running right now.\n";
         }
     }
 
-    // ========================================================
-    // SET TEXT - UPDATE THIS
-    // ========================================================
-
-    else if (command_line == "set_text") {
+    // Handle set_text without a value
+    else if (command_line == "set_text")
+    {
         output =
             "Please provide text.\n"
             "Format: set_text <your text>\n";
     }
 
+    // Set the marquee text
     else if (
-        command_line.rfind("set_text ", 0) == 0)
+        command_line.rfind(
+            "set_text ", 0) == 0)
     {
-        // Get text after "set_text "
-        std::string new_text = command_line.substr(9);
+        std::string new_text =
+            command_line.substr(9);
 
-        if (new_text.empty()) {
+        if (new_text.empty())
+        {
             output =
                 "Please provide text.\n"
                 "Format: set_text <your text>\n";
-        } else {
-            // Store text
+        }
+        else
+        {
             {
                 std::lock_guard<std::mutex> lock(
                     marquee_text_mutex);
@@ -212,179 +455,240 @@ void command_handler(const std::string &command_line) { // parameter: pointer to
                 marquee_text = new_text;
             }
 
-            // ------------------------------------------------
-            // REMOVE THIS PART AFTER
-            // Temporary display to verify that the input was successfully stored.
-            // ------------------------------------------------
-
             output =
-                "Text has been updated.\n"
-                "Current text: [" + new_text + "]\n";
+                "Text has been updated.\n";
         }
     }
 
-    // ========================================================
-    // SET SPEED - UPDATE THIS
-    // ========================================================
-
-    else if (command_line == "set_speed") {
+    // Handle set_speed without a value
+    else if (command_line == "set_speed")
+    {
         output =
             "Please provide speed.\n"
             "Format: set_speed <milliseconds>\n";
     }
 
-    // --------------------------------------------------------
-    // SET SPEED WITH VALUE
-    // --------------------------------------------------------
-
+    // Change the marquee speed
     else if (
-        command_line.rfind("set_speed ", 0) == 0)
+        command_line.rfind(
+            "set_speed ", 0) == 0)
     {
-        std::string speed_text = command_line.substr(10);
+        std::string speed_text =
+            command_line.substr(10);
 
-        // Check if speed is empty
-        if (speed_text.empty()) {
+        if (speed_text.empty())
+        {
             output =
                 "Please provide speed.\n"
                 "Format: set_speed <milliseconds>\n";
-        } else {
-            // try block to catch any exceptions from std::stoi meaning the input is not a valid integer
-            try {
-                // variable to track the position of the first invalid character in the string
-                size_t position = 0; 
-                // convert the speed_text string to an integer,
-                // and store the position of the first invalid character in the position variable
-                int speed = std::stoi(speed_text, &position); 
+        }
+        else
+        {
+            try
+            {
+                size_t position = 0;
 
-                // Check for extra characters
-                if (position != speed_text.length()) {
+                int speed =
+                    std::stoi(
+                        speed_text,
+                        &position);
+
+                // Check for extra characters in the input
+                if (position !=
+                    speed_text.length())
+                {
                     output =
-                        "Unsupported Speed Value.\n"
-                        "Format: set_speed <milliseconds>\n";
+                        "Invalid Speed. "
+                        "Try Again.\n";
                 }
-                // Check for negative/zero value
-                else if (speed <= 0) {
-                    output = "Unsupported Speed Value. Speed must be greater than 0.\n";
+
+                // Speed must be greater than zero
+                else if (speed <= 0)
+                {
+                    output =
+                        "Invalid Speed. "
+                        "Speed must be greater than 0.\n";
                 }
-                // Valid speed
-                else {
-                    // code block to limit the scope of the lock_guard,
-                    // ensuring that the mutex is unlocked after updating the marquee_speed
-                    { 
-                        std::lock_guard<std::mutex> lock(marquee_speed_mutex);
+                else
+                {
+                    {
+                        std::lock_guard<std::mutex> lock(
+                            marquee_speed_mutex);
+
                         marquee_speed = speed;
                     }
-                    output = "Speed set to " + std::to_string(speed) + " ms.\n";
+
+                    output =
+                        "Speed set to " +
+                        std::to_string(speed) +
+                        " ms.\n";
                 }
-            } 
-            // catch block to handle any exceptions thrown by std::stoi,
-            // indicating that the input is not a valid integer
-            catch (...) { 
+            }
+            catch (...)
+            {
                 output =
-                    "Unsupported Speed Value.\n"
-                    "Format: set_speed <milliseconds>\n";
+                    "Invalid Speed. "
+                    "Try Again.\n";
             }
         }
     }
 
-    // ========================================================
-    // EXIT
-    // ========================================================
-
-    else if (command_line == "exit") {
+    // Exit the program
+    else if (command_line == "exit")
+    {
         marquee_running = false;
         is_running = false;
-        output = "Session Ending...\n";
+
+        if (marquee_thread.joinable())
+        {
+            marquee_thread.join();
+        }
+
+        output =
+            "\nSession Ending...\n";
     }
 
-    // ========================================================
-    // UNKNOWN COMMAND
-    // ========================================================
-
-    else { output = "Unknown command. Type 'help' for available commands.\n"; }
-
-    // ========================================================
-    // STORE OUTPUT
-    // ========================================================
-
-    // code block to limit the scope of the lock_guard,
-    // ensuring that the mutex is unlocked after updating the prompt_display_buffer
+    // Handle commands that are not recognized
+    else
     {
-        std::lock_guard<std::mutex> lock(prompt_mutex);
-        prompt_display_buffer = output;
+        output =
+            "Unknown command. "
+            "Type 'help' for available commands.\n";
     }
 
-    // ========================================================
-    // DISPLAY OUTPUT
-    // ========================================================
 
-    // display the output to the console
-    std::cout << output;
-    // check if the program is still running before displaying the command prompt
-    // and flush the output buffer to ensure that the prompt is displayed immediately
-    if (is_running) {
-        std::cout << "Command> ";
-        std::cout.flush();
+    // Display the result and restore the prompt
+    {
+        std::lock_guard<std::mutex> lock(
+            console_mutex);
+
+        if (marquee_running)
+        {
+            // Clear the current prompt
+            std::cout
+                << "\033[2K\r";
+
+            // Print the command result on a new line
+            std::cout
+                << '\n'
+                << output;
+
+            // Restore the prompt below the output
+            std::cout
+                << "Command> ";
+
+            std::cout.flush();
+        }
+        else
+        {
+            // Clear the current line
+            std::cout
+                << "\033[2K\r";
+
+            // Print the command result
+            std::cout
+                << output;
+
+            if (is_running)
+            {
+                std::cout
+                    << "Command> ";
+            }
+
+            std::cout.flush();
+        }
     }
 }
 
-// ============================================================
-//               COMMAND INTERPRETER THREAD
-// ============================================================
 
-// Function to handle commands from the command queue in a separate thread
-void command_interpreter_thread_func() {
-    while (is_running) {
-        std::string command; 
-        // code block to limit the scope of the lock_guard,
-        // ensuring that the mutex is unlocked after accessing the command_queue
+// Takes commands from the queue and processes them
+void command_interpreter_thread_func()
+{
+    while (is_running)
+    {
+        std::string command;
+
         {
-            std::lock_guard<std::mutex> lock(command_queue_mutex);
+            std::lock_guard<std::mutex> lock(
+                command_queue_mutex);
 
-            if (!command_queue.empty()) {
-                command = command_queue.front();
+            if (!command_queue.empty())
+            {
+                command =
+                    command_queue.front();
+
                 command_queue.pop();
             }
         }
 
-        if (!command.empty()) {
+        if (!command.empty())
+        {
             command_handler(command);
         }
-        // Sleep for a short duration to prevent busy waiting and reduce CPU usage
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+        // Prevent the thread from constantly checking the queue
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(10));
     }
 }
 
-// ============================================================
-//                            MAIN
-// ============================================================
 
 int main()
 {
-    std::cout << "=====================================\n";
-    std::cout << "      CSOPESY - M03 MARQUEE\n";
-    std::cout << "      S05 - GROUP 8\n";
-    std::cout << "=====================================\n\n";
-    std::cout << "Group Developer:\n\n";
-    std::cout << "Abenojar Fredrikzen\n";
-    std::cout << "Caya, Mary Faye\n";
-    std::cout << "Diamante, Deo Zamir\n";
-    std::cout << "Guiller, Gerylyn\n\n\n";
-    std::cout << "Version Date: September 26, 2026\n\n";
-    std::cout << "Type 'help' to see available commands.";
-    std::cout << "\n\n Command> ";
+    // Initial console display
+    std::cout
+        << "=====================================\n"
+        << "      CSOPESY - M03 MARQUEE\n"
+        << "      S05 - GROUP 8\n"
+        << "=====================================\n\n";
+
+    std::cout
+        << "Group Developer:\n\n"
+        << "Abenojar Fredrikzen\n"
+        << "Caya, Mary Faye\n"
+        << "Diamante, Deo Zamir\n"
+        << "Guiller, Gerylyn\n\n\n";
+
+    std::cout
+        << "Version Date: September 26, 2026\n\n";
+
+    std::cout
+        << "Type 'help' to see available commands.\n\n";
+
+    std::cout
+        << "Command> ";
+
     std::cout.flush();
 
-    // Start the keyboard handler and command interpreter threads
-    std::thread keyboard_thread(keyboard_handler_thread_func);
-    std::thread command_thread(command_interpreter_thread_func);
 
-    // Wait for the command interpreter thread to finish before exiting the program
+    // Start the input and command threads
+    std::thread keyboard_thread(
+        keyboard_handler_thread_func);
+
+    std::thread command_thread(
+        command_interpreter_thread_func);
+
+
+    // Wait until the command thread finishes
     command_thread.join();
+
+
+    // Stop the marquee before exiting
     marquee_running = false;
+
+    if (marquee_thread.joinable())
+    {
+        marquee_thread.join();
+    }
+
+
+    // The keyboard thread is waiting for input,
+    // so it is detached when the program ends.
     keyboard_thread.detach();
 
-    std::cout << "\nProgram terminated.\n";
+
+    std::cout
+        << "\nProgram terminated.\n";
 
     return 0;
 }
