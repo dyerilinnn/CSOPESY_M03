@@ -1,50 +1,6 @@
 // CSOPESY - S05 - GROUP 8
 // M03 - MARQUEE CONSOLE
 
-//          ***** REMOVE THIS PART AFTER *****
-// ============================================================
-//                             FLOW
-// ============================================================
-// ----- First -----
-// User enters a command
-// Is the command Valid?
-// [YES] Process the Command
-// [NO] Show "Command not recognized. Type 'help' to view the command list.", then ask for another
-// command.
-
-// ----- Second -----
-// If user enters "help"
-// Valid -> Show available commands
-
-// ----- Third -----
-// If user enters "start_marquee"
-// IS TEXT ALREADY SET? (set_text <text>)
-// [YES] Start Maquee Animation
-// [NO] Show "The text field is empty. Please use 'set_text' first."
-
-// ----- Fourth -----
-// If user enters "stop_marquee"
-// IS MARQUEE RUNNING?
-// [YES] Stop Marquee Animation, Display "Marquee has stopped."
-// [NO] Show "Marquee isn't running right now."
-
-// ----- Fifth -----
-// If user enters "set_text <text>"
-// Set/Update the marquee text
-// Display "Text has been updated."
-
-// ----- Sixth -----
-// If user enters "set_speed"
-// Set/update the marquee speed
-// VALID?
-// [YES] Display "Speed set to # ms."
-// [NO] If user enters 'set_speed abc', display "Invalid Speed. Try Again."
-// [NO] If user 'set_speed -10', display "Invalid Speed. Speed must be grater than 0."
-
-// -----Seventh -----
-// If user enters "exit"
-// Stop/exit the Program
-// Display "Session Ending..."
 
 #include <algorithm>  // Provides functions like std::min()
 #include <atomic>     // For atomic operations, For std::atomic
