@@ -643,7 +643,7 @@ int main()
         << "=====================================\n\n";
 
     std::cout
-        << "Group Developer:\n\n"
+        << "Group Developers:\n\n"
         << "Abenojar Fredrikzen\n"
         << "Caya, Mary Faye\n"
         << "Diamante, Deo Zamir\n"
