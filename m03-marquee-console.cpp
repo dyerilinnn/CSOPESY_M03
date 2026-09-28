@@ -599,7 +599,7 @@ int main() {
               << "      S05 - GROUP 8\n"
               << "=====================================\n\n";
 
-    std::cout << "Group Developer:\n\n"
+    std::cout << "Group Developers:\n\n"
               << "Abenojar, Fredrikzen\n"
               << "Caya, Mary Faye\n"
               << "Diamante, Deo Zamir\n"
